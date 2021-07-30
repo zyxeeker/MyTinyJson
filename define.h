@@ -8,7 +8,8 @@
 enum JSON_TYPE {
     JSON_NULL = 0,
     JSON_TRUE,
-    JSON_FALSE
+    JSON_FALSE,
+    JSON_NUMBER
 };
 
 enum PARSE_STATE {
