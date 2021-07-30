@@ -10,6 +10,7 @@
 
 #include <string>
 #include <cstdlib>
+#include <cmath>
 #include "define.h"
 
 #if 0
@@ -114,7 +115,9 @@ static double ParseNumber(std::string *src_str, JSON_TYPE type) {
     }
 #endif
     double tmp = strtod(src_str->c_str(), nullptr);
-//    return tmp;
+    errno = 0;
+    if (errno == ERANGE && (tmp == HUGE_VAL || tmp == -HUGE_VAL))
+        return JSON_PARSE_NUMBER_TOO_BIG;
     return JSON_PARSE_OK;
 
 }
