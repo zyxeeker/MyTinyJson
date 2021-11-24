@@ -5,13 +5,15 @@
 #ifndef MYTINYJSON_PARSE_HPP
 #define MYTINYJSON_PARSE_HPP
 
-#define ISDIGIT(ch) ((ch) >= '0' && (ch) <= '9')
-#define ISDIGIT1TO9(ch) ((ch) >= '1' && (ch) <= '9')
-
 #include <string>
 #include <cstdlib>
 #include <cmath>
 #include "define.h"
+
+#define ISDIGIT(ch) ((ch) >= '0' && (ch) <= '9')
+#define ISDIGIT1TO9(ch) ((ch) >= '1' && (ch) <= '9')
+
+#define Init(v) do{(v)->type = JSON_NULL;}while(0)
 
 #if 0
 static int ParseKey(JSON_CONTENT *src_content, const std::string *dst_str, JSON_TYPE type){
@@ -27,6 +29,8 @@ static int ParseKey(JSON_CONTENT *src_content, const std::string *dst_str, JSON_
     return JSON_PARSE_OK;
 }
 #endif
+
+void SetString(JSON_VALUE *value, const char *s, size_t len);
 
 static int ParseKey(std::string *src_str, const std::string *dst_str, JSON_TYPE type) {
     auto src = src_str->begin();
@@ -114,13 +118,72 @@ static double ParseNumber(std::string *src_str, JSON_TYPE type) {
         }
     }
 #endif
-    double tmp = strtod(src_str->c_str(), nullptr);
+    double num = strtod(src_str->c_str(), nullptr);
     errno = 0;
-    if (errno == ERANGE && (tmp == HUGE_VAL || tmp == -HUGE_VAL))
+    if (errno == ERANGE && (num == HUGE_VAL || num == -HUGE_VAL))
         return JSON_PARSE_NUMBER_TOO_BIG;
     return JSON_PARSE_OK;
 
 }
 
+static void Free(JSON_VALUE *value) {
+    assert(value != nullptr);
+    if (value->type == JSON_STRING)
+        delete value->s.s;
+    value->type = JSON_NULL;
+}
+
+static int ParseString(JSON_CONTENT *content, JSON_VALUE *value) {
+    const char *s;
+    assert(*content->json == '\"');
+    ++content->json;
+    s = content->json;
+    for (;; ++s) {
+        switch (*s) {
+            case '\"':SetString(value, content->json, content->size);
+                return JSON_PARSE_OK;
+            case '\0':return JSON_PARSE_MISS_QUOTATION_MARK;
+            default:++content->size;
+        }
+    }
+}
+
+// NUM
+static double GetNum() {
+
+}
+
+static void SetNum() {
+
+}
+
+// BOOL
+static int GetBool() {
+
+}
+
+static void SetBool() {
+
+}
+
+// STRING
+static void SetString(JSON_VALUE *value, const char *s, size_t len) {
+    assert(value != nullptr && (s != nullptr || len == 0));
+    Free(value);
+    // 有脏数据 所以初始化为null
+    value->s.s = new char[len + 1]();
+    memcpy(value->s.s, s, len);
+    value->s.s[len + 1] = '\0';
+    value->s.len = len;
+    value->type = JSON_STRING;
+}
+
+static std::string GetString(JSON_VALUE *value) {
+    return value->s.s;
+}
+
+static size_t GetStringLength(JSON_VALUE *value) {
+    return value->s.len;
+}
 
 #endif //MYTINYJSON_PARSE_HPP

@@ -77,6 +77,21 @@ TEST(Value_NUM, ERROR_TEST) {
 
 }
 
+TEST(Value_STRING, test) {
+    JSON_VALUE v;
+    JSON_CONTENT s;
+    s.json = "\"sas\"";
+    s.size = 0;
+    Init(&v);
+    EXPECT_EQ(JSON_PARSE_OK, ParseString(&s, &v));
+    EXPECT_EQ("sas", GetString(&v));
+#if 0
+    SetString(&v,"Hello",5);
+    EXPECT_EQ("Hello", GetString(&v));
+    EXPECT_EQ(5, GetStringLength(&v));
+#endif
+}
+
 int main() {
     testing::InitGoogleTest();
     return RUN_ALL_TESTS();
