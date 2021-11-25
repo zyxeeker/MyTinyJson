@@ -77,19 +77,57 @@ TEST(Value_NUM, ERROR_TEST) {
 
 }
 
-TEST(Value_STRING, test) {
+void TEST_STRING(char *expect, char *json) {
+    JSON_VALUE v;
+    JSON_CONTENT s;
+    s.json = json;
+    s.size = s.top = 0;
+    Init(&v);
+    EXPECT_EQ(JSON_PARSE_OK, ParseString(&s, &v));
+    EXPECT_EQ(expect, GetString(&v));
+    Free(&v);
+}
+
+TEST(STRING, test) {
+#if 0
+    TEST_STRING("H\nWorld", "\"H\\nWorld\"");
+    TEST_STRING("", "\"\"");
+    TEST_STRING("Hello", "\"Hello\"");
+    TEST_STRING("\" \\ / \b \f \n \r \t", "\"\\\" \\\\ \\/ \\b \\f \\n \\r \\t\"");
+#endif
+#if 1
     JSON_VALUE v;
     JSON_CONTENT s;
     s.json = "\"sas\"";
-    s.size = 0;
+    s.size = s.top = 0;
     Init(&v);
     EXPECT_EQ(JSON_PARSE_OK, ParseString(&s, &v));
     EXPECT_EQ("sas", GetString(&v));
+#endif
 #if 0
     SetString(&v,"Hello",5);
     EXPECT_EQ("Hello", GetString(&v));
     EXPECT_EQ(5, GetStringLength(&v));
 #endif
+}
+
+void TEST_STRING_ERROR(PARSE_STATE st, char *json) {
+    JSON_VALUE v;
+    JSON_CONTENT s;
+    s.json = json;
+    s.size = s.top = 0;
+    s.stack = nullptr;
+    Init(&v);
+    EXPECT_EQ(st, ParseString(&s, &v));
+}
+
+TEST(Value_STRING_ERROR, test) {
+    TEST_STRING_ERROR(JSON_PARSE_INVALID_STRING_ESCAPE, "\"\\v\"");
+    TEST_STRING_ERROR(JSON_PARSE_INVALID_STRING_ESCAPE, "\"\\'\"");
+    TEST_STRING_ERROR(JSON_PARSE_INVALID_STRING_ESCAPE, "\"\\0\"");
+    TEST_STRING_ERROR(JSON_PARSE_INVALID_STRING_ESCAPE, "\"\\x12\"");
+    TEST_STRING_ERROR(JSON_PARSE_INVALID_STRING_CHAR, "\"\x01\"");
+    TEST_STRING_ERROR(JSON_PARSE_INVALID_STRING_CHAR, "\"\x1F\"");
 }
 
 int main() {

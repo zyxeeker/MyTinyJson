@@ -10,25 +10,30 @@
 #include <cmath>
 #include "define.h"
 
+#define JSON_STRING_STACK_LENGTH 256
 #define ISDIGIT(ch) ((ch) >= '0' && (ch) <= '9')
 #define ISDIGIT1TO9(ch) ((ch) >= '1' && (ch) <= '9')
 
 #define Init(v) do{(v)->type = JSON_NULL;}while(0)
 
-#if 0
-static int ParseKey(JSON_CONTENT *src_content, const std::string *dst_str, JSON_TYPE type){
-    std::string *tmp = src_content->content;
-    int i = 0;
-    for (; i<tmp->length(); ++i) {
-        if (tmp+i != dst_str+i)
-            return JSON_PARSE_INVALID_VALUE;
+static void StringStackPush(JSON_CONTENT *content, char c) {
+    size_t size = sizeof(char);
+    assert(size > 0);
+    if (content->top + size >= content->size) {
+        if (content->size == 0)
+            content->size = JSON_STRING_STACK_LENGTH;
+        while (content->top + size >= content->size)
+            content->size += content->size >> 1;  /* content->size * 1.5 */
+        content->stack = (char *) realloc(content->stack, content->size);
     }
-    tmp+i;
-    JSON_KEY *key;
-    key->type = type;
-    return JSON_PARSE_OK;
+    content->stack[content->top] = c;
+    content->top += size;
 }
-#endif
+
+static char *StringStackPop(JSON_CONTENT *content, size_t size) {
+    assert(content->top >= size);
+    return content->stack + (content->top - size);
+}
 
 void SetString(JSON_VALUE *value, const char *s, size_t len);
 
@@ -135,35 +140,72 @@ static void Free(JSON_VALUE *value) {
 
 static int ParseString(JSON_CONTENT *content, JSON_VALUE *value) {
     const char *s;
+    size_t head = content->top, len;
     assert(*content->json == '\"');
     ++content->json;
     s = content->json;
-    for (;; ++s) {
+    content->stack = new char[256]();
+    for (;; ++s, ++content->size) {
         switch (*s) {
-            case '\"':SetString(value, content->json, content->size);
+            case '\\':
+                switch (*(s + 1)) {
+                    case '\\':StringStackPush(content, '\\');
+                        break;
+                    case '\"':StringStackPush(content, '\"');
+                        break;
+                    case '/':StringStackPush(content, '/');
+                        break;
+                    case 'b':StringStackPush(content, '\b');
+                        break;
+                    case 'f':StringStackPush(content, '\f');
+                        break;
+                    case 'n':StringStackPush(content, '\n');
+                        break;
+                    case 'r':StringStackPush(content, '\r');
+                        break;
+                    case 't':StringStackPush(content, '\t');
+                        break;
+                    default:content->top = head;
+                        return JSON_PARSE_INVALID_STRING_ESCAPE;
+                }
+                ++s;
+                break;
+            case '\"':SetString(value, StringStackPop(content, content->top - head), content->size);
                 return JSON_PARSE_OK;
             case '\0':return JSON_PARSE_MISS_QUOTATION_MARK;
-            default:++content->size;
+            default:
+                if ((unsigned char) *s <= 0x20) {
+                    content->top = head;
+                    return JSON_PARSE_INVALID_STRING_CHAR;
+                }
+                StringStackPush(content, *s);
         }
     }
 }
 
 // NUM
-static double GetNum() {
-
+static double GetNum(JSON_VALUE *value) {
+    assert(value != nullptr && value->type == JSON_NUMBER);
+    return value->num;
 }
 
-static void SetNum() {
-
+static void SetNum(JSON_VALUE *value, double num) {
+    assert(value != nullptr);
+    Free(value);
+    value->num = num;
+    value->type = JSON_NUMBER;
 }
 
 // BOOL
-static int GetBool() {
-
+static int GetBool(JSON_VALUE *value) {
+    assert(value != nullptr && (value->type == JSON_TRUE || value->type == JSON_FALSE));
+    return value->type == JSON_TRUE;
 }
 
-static void SetBool() {
-
+static void SetBool(JSON_VALUE *value, int b) {
+    assert(value != nullptr);
+    Free(value);
+    b ? value->type = JSON_TRUE : JSON_FALSE;
 }
 
 // STRING

@@ -19,7 +19,9 @@ enum PARSE_STATE {
     JSON_PARSE_INVALID_VALUE,
     JSON_PARSE_ROOT_NOT_SINGULAR,
     JSON_PARSE_NUMBER_TOO_BIG,
-    JSON_PARSE_MISS_QUOTATION_MARK
+    JSON_PARSE_MISS_QUOTATION_MARK,
+    JSON_PARSE_INVALID_STRING_ESCAPE,
+    JSON_PARSE_INVALID_STRING_CHAR
 };
 
 struct JSON_VALUE {
@@ -35,8 +37,8 @@ struct JSON_VALUE {
 
 struct JSON_CONTENT {
     const char *json;
-//    char* stack;
-    size_t size;
+    char *stack;
+    size_t size, top;
 };
 
 #endif //MYTINYJSON_DEFINE_H
