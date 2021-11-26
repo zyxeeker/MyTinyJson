@@ -140,7 +140,6 @@ static void Free(JSON_VALUE *value) {
 
 static const char *ParseHex4(const char *p, unsigned *u) {
     *u = 0;
-    ++p;
     for (int i = 0; i < 4; ++i, ++p) {
         *u <<= 4;
         if (*p >= '0' && *p <= '9') { *u |= (*p - '0'); }
@@ -173,15 +172,17 @@ static void EncodeUtf8(JSON_CONTENT *content, unsigned u) {
 static int ParseString(JSON_CONTENT *content, JSON_VALUE *value) {
     const char *s;
     unsigned u;
-    size_t head = content->top, len;
+    char tmp;
+    size_t head = content->top;
     assert(*content->json == '\"');
     ++content->json;
     s = content->json;
     content->stack = new char[256]();
-    for (;; ++s, ++content->size) {
-        switch (*s) {
+    for (;; ++content->size) {
+        tmp = *s++;
+        switch (tmp) {
             case '\\':
-                switch (*(s + 1)) {
+                switch (*s++) {
                     case '\\':StringStackPush(content, '\\');
                         break;
                     case '\"':StringStackPush(content, '\"');
@@ -199,34 +200,32 @@ static int ParseString(JSON_CONTENT *content, JSON_VALUE *value) {
                     case 't':StringStackPush(content, '\t');
                         break;
                     case 'u':
-                        if (!(s = ParseHex4(s + 1, &u)))
+                        if (!(s = ParseHex4(s, &u)))
                             STRING_ERROR(JSON_PARSE_INVALID_UNICODE_HEX);
                         if (u >= 0xD800 && u <= 0xDBFF) {
                             unsigned h = u;
-                            if (*s != '\\')
+                            if (*s++ != '\\')
                                 STRING_ERROR(JSON_PARSE_INVALID_UNICODE_SURROGATE);
-                            if (*s != 'u')
+                            if (*s++ != 'u')
                                 STRING_ERROR(JSON_PARSE_INVALID_UNICODE_SURROGATE);
-                            if (!(s = ParseHex4(s + 1, &u)))
+                            if (!(s = ParseHex4(s, &u)))
                                 STRING_ERROR(JSON_PARSE_INVALID_UNICODE_HEX);
                             if (u < 0xDC00 || u > 0xDFFF)
                                 STRING_ERROR(JSON_PARSE_INVALID_UNICODE_SURROGATE);
                             u = 0x10000 + (h - 0xD800) * 0x400 + u - 0xDC00;
                         }
                         EncodeUtf8(content, u);
-                        s -= 2;
                         break;
                     default:STRING_ERROR(JSON_PARSE_INVALID_STRING_ESCAPE);
                 }
-                ++s;
                 break;
             case '\"':SetString(value, StringStackPop(content, content->top - head), content->size);
                 return JSON_PARSE_OK;
             case '\0':STRING_ERROR(JSON_PARSE_MISS_QUOTATION_MARK);
             default:
-                if ((unsigned char) *s < 0x20)
+                if ((unsigned char) tmp < 0x20)
                     STRING_ERROR(JSON_PARSE_INVALID_STRING_CHAR);
-                StringStackPush(content, *s);
+                StringStackPush(content, tmp);
         }
     }
 }
