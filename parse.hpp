@@ -13,8 +13,8 @@
 #define JSON_STRING_STACK_LENGTH 256
 #define ISDIGIT(ch) ((ch) >= '0' && (ch) <= '9')
 #define ISDIGIT1TO9(ch) ((ch) >= '1' && (ch) <= '9')
-
 #define Init(v) do{(v)->type = JSON_NULL;}while(0)
+#define STRING_ERROR(ret) do{content->top = head; return ret;}while(0)
 
 static void StringStackPush(JSON_CONTENT *content, char c) {
     size_t size = sizeof(char);
@@ -138,8 +138,41 @@ static void Free(JSON_VALUE *value) {
     value->type = JSON_NULL;
 }
 
+static const char *ParseHex4(const char *p, unsigned *u) {
+    *u = 0;
+    ++p;
+    for (int i = 0; i < 4; ++i, ++p) {
+        *u <<= 4;
+        if (*p >= '0' && *p <= '9') { *u |= (*p - '0'); }
+        else if (*p >= 'A' && *p <= 'F') { *u |= (*p - 'A' + 10); }
+        else if (*p >= 'a' && *p <= 'f') { *u |= (*p - 'a' + 10); }
+        else return nullptr;
+    }
+    return p;
+}
+
+static void EncodeUtf8(JSON_CONTENT *content, unsigned u) {
+    assert(u >= 0x00 && u <= 0x10FFFF);
+    if (u >= 0x00 && u <= 0x7F) {
+        StringStackPush(content, u);
+    } else if (u >= 0x80 && u <= 0x7FF) {
+        StringStackPush(content, (0xC0 | ((u >> 6) & 0x1F)));
+        StringStackPush(content, (0x80 | (u & 0x3F)));
+    } else if (u >= 0x800 && u <= 0xFFFF) {
+        StringStackPush(content, (0xE0 | ((u >> 12) & 0xFF)));
+        StringStackPush(content, (0x80 | ((u >> 6) & 0x3F)));
+        StringStackPush(content, (0x80 | (u & 0x3F)));
+    } else if (u >= 0x10000 && u <= 0x10FFFF) {
+        StringStackPush(content, (0xF0 | ((u >> 18) & 0x7)));
+        StringStackPush(content, (0x80 | ((u >> 12) & 0x3F)));
+        StringStackPush(content, (0x80 | ((u >> 6) & 0x3F)));
+        StringStackPush(content, (0x80 | (u & 0x3F)));
+    }
+}
+
 static int ParseString(JSON_CONTENT *content, JSON_VALUE *value) {
     const char *s;
+    unsigned u;
     size_t head = content->top, len;
     assert(*content->json == '\"');
     ++content->json;
@@ -165,19 +198,34 @@ static int ParseString(JSON_CONTENT *content, JSON_VALUE *value) {
                         break;
                     case 't':StringStackPush(content, '\t');
                         break;
-                    default:content->top = head;
-                        return JSON_PARSE_INVALID_STRING_ESCAPE;
+                    case 'u':
+                        if (!(s = ParseHex4(s + 1, &u)))
+                            STRING_ERROR(JSON_PARSE_INVALID_UNICODE_HEX);
+                        if (u >= 0xD800 && u <= 0xDBFF) {
+                            unsigned h = u;
+                            if (*s != '\\')
+                                STRING_ERROR(JSON_PARSE_INVALID_UNICODE_SURROGATE);
+                            if (*s != 'u')
+                                STRING_ERROR(JSON_PARSE_INVALID_UNICODE_SURROGATE);
+                            if (!(s = ParseHex4(s + 1, &u)))
+                                STRING_ERROR(JSON_PARSE_INVALID_UNICODE_HEX);
+                            if (u < 0xDC00 || u > 0xDFFF)
+                                STRING_ERROR(JSON_PARSE_INVALID_UNICODE_SURROGATE);
+                            u = 0x10000 + (h - 0xD800) * 0x400 + u - 0xDC00;
+                        }
+                        EncodeUtf8(content, u);
+                        s -= 2;
+                        break;
+                    default:STRING_ERROR(JSON_PARSE_INVALID_STRING_ESCAPE);
                 }
                 ++s;
                 break;
             case '\"':SetString(value, StringStackPop(content, content->top - head), content->size);
                 return JSON_PARSE_OK;
-            case '\0':return JSON_PARSE_MISS_QUOTATION_MARK;
+            case '\0':STRING_ERROR(JSON_PARSE_MISS_QUOTATION_MARK);
             default:
-                if ((unsigned char) *s <= 0x20) {
-                    content->top = head;
-                    return JSON_PARSE_INVALID_STRING_CHAR;
-                }
+                if ((unsigned char) *s < 0x20)
+                    STRING_ERROR(JSON_PARSE_INVALID_STRING_CHAR);
                 StringStackPush(content, *s);
         }
     }
