@@ -15,72 +15,69 @@
 #define ISDIGIT1TO9(ch) ((ch) >= '1' && (ch) <= '9')
 #define Init(v) do{(v)->type = JSON_NULL;}while(0)
 #define STRING_ERROR(ret) do{content->top = head; return ret;}while(0)
+#define PUTC(c, ch) do { *(char*)ContentStackPush(c, sizeof(char)) = (ch); } while(0)
 
-static void StringStackPush(JSON_CONTENT *content, char c) {
-    size_t size = sizeof(char);
-    assert(size > 0);
-    if (content->top + size >= content->size) {
+static void *ContentStackPush(JSON_CONTENT *content, size_t c) {
+    assert(c > 0);
+    if (content->top + c >= content->size) {
         if (content->size == 0)
             content->size = JSON_STRING_STACK_LENGTH;
-        while (content->top + size >= content->size)
+        while (content->top + c >= content->size)
             content->size += content->size >> 1;  /* content->size * 1.5 */
         content->stack = (char *) realloc(content->stack, content->size);
     }
-    content->stack[content->top] = c;
-    content->top += size;
+    void *ret;
+    ret = content->stack + content->top;
+    content->top += c;
+    return ret;
 }
 
-static char *StringStackPop(JSON_CONTENT *content, size_t size) {
+static char *ContentStackPop(JSON_CONTENT *content, size_t size) {
     assert(content->top >= size);
     return content->stack + (content->top - size);
 }
 
 void SetString(JSON_VALUE *value, const char *s, size_t len);
 
-static int ParseKey(std::string *src_str, const std::string *dst_str, JSON_TYPE type) {
-    auto src = src_str->begin();
-    auto src_end = src_str->end();
-    auto dst = dst_str->begin();
-    auto dst_end = dst_str->end();
-
-    for (; src != src_end; ++dst, ++src) {
-        if (dst == dst_end && src != src_end)
-            return JSON_PARSE_INVALID_VALUE;
-        if (*src != *dst)
+static PARSE_STATE ParseKey(JSON_CONTENT *content, JSON_VALUE *value, const char *dst, JSON_TYPE type) {
+    int i;
+    for (i = 0; dst[i]; ++i) {
+        std::cout << content->json[i] << std::endl;
+        if (content->json[i] != dst[i])
             return JSON_PARSE_INVALID_VALUE;
     }
+    content->json += i;
+    value->type = type;
     return JSON_PARSE_OK;
 }
 
-static double ParseNumber(std::string *src_str, JSON_TYPE type) {
-    auto src = src_str->begin();
-    auto src_end = src_str->end();
-
+static PARSE_STATE ParseNumber(JSON_CONTENT *content, JSON_VALUE *value) {
+    const char *src = content->json;
 #if 1
     // 负数
     if (*src == '-') ++src;
     else if (!ISDIGIT(*src)) return JSON_PARSE_INVALID_VALUE;
     // 个数
-    if (src == src_end) return JSON_PARSE_INVALID_VALUE;
+    if (*src == '\"') return JSON_PARSE_INVALID_VALUE;
     // 开头为0
     if (*src == '0') ++src;
     else {
         if (!ISDIGIT1TO9(*src)) return JSON_PARSE_INVALID_VALUE;
-        for (; src != src_end && ISDIGIT(*src); ++src);
+        for (; *src != '\"' && ISDIGIT(*src); ++src);
     }
     // 小数点
-    if (src != src_end && *src == '.') {
+    if (*src != '\"' && *src == '.') {
         ++src;
-        if (src == src_end || !ISDIGIT(*src)) return JSON_PARSE_INVALID_VALUE;
-        for (; src != src_end && ISDIGIT(*src); ++src);
+        if (*src == '\"' || !ISDIGIT(*src)) return JSON_PARSE_INVALID_VALUE;
+        for (; *src != '\"' && ISDIGIT(*src); ++src);
     }
     // 科学计数法
-    if (src != src_end) {
+    if (*src != '\"') {
         if (*src == 'E' || *src == 'e') {
             ++src;
             if (*src == '-' || *src == '+') ++src;
             if (!ISDIGIT(*src)) return JSON_PARSE_INVALID_VALUE;
-            for (++src; src != src_end && ISDIGIT(*src); ++src);
+            for (++src; *src != '\"' && ISDIGIT(*src); ++src);
         }
     }
 #endif
@@ -123,12 +120,13 @@ static double ParseNumber(std::string *src_str, JSON_TYPE type) {
         }
     }
 #endif
-    double num = strtod(src_str->c_str(), nullptr);
+    value->num = strtod(content->json, nullptr);
     errno = 0;
-    if (errno == ERANGE && (num == HUGE_VAL || num == -HUGE_VAL))
+    if (errno == ERANGE && (value->num == HUGE_VAL || value->num == -HUGE_VAL))
         return JSON_PARSE_NUMBER_TOO_BIG;
+    value->type = JSON_NUMBER;
+    content->json = src;
     return JSON_PARSE_OK;
-
 }
 
 static void Free(JSON_VALUE *value) {
@@ -153,23 +151,23 @@ static const char *ParseHex4(const char *p, unsigned *u) {
 static void EncodeUtf8(JSON_CONTENT *content, unsigned u) {
     assert(u >= 0x00 && u <= 0x10FFFF);
     if (u >= 0x00 && u <= 0x7F) {
-        StringStackPush(content, u);
+        PUTC(content, u);
     } else if (u >= 0x80 && u <= 0x7FF) {
-        StringStackPush(content, (0xC0 | ((u >> 6) & 0x1F)));
-        StringStackPush(content, (0x80 | (u & 0x3F)));
+        PUTC(content, (0xC0 | ((u >> 6) & 0x1F)));
+        PUTC(content, (0x80 | (u & 0x3F)));
     } else if (u >= 0x800 && u <= 0xFFFF) {
-        StringStackPush(content, (0xE0 | ((u >> 12) & 0xFF)));
-        StringStackPush(content, (0x80 | ((u >> 6) & 0x3F)));
-        StringStackPush(content, (0x80 | (u & 0x3F)));
+        PUTC(content, (0xE0 | ((u >> 12) & 0xFF)));
+        PUTC(content, (0x80 | ((u >> 6) & 0x3F)));
+        PUTC(content, (0x80 | (u & 0x3F)));
     } else if (u >= 0x10000 && u <= 0x10FFFF) {
-        StringStackPush(content, (0xF0 | ((u >> 18) & 0x7)));
-        StringStackPush(content, (0x80 | ((u >> 12) & 0x3F)));
-        StringStackPush(content, (0x80 | ((u >> 6) & 0x3F)));
-        StringStackPush(content, (0x80 | (u & 0x3F)));
+        PUTC(content, (0xF0 | ((u >> 18) & 0x7)));
+        PUTC(content, (0x80 | ((u >> 12) & 0x3F)));
+        PUTC(content, (0x80 | ((u >> 6) & 0x3F)));
+        PUTC(content, (0x80 | (u & 0x3F)));
     }
 }
 
-static int ParseString(JSON_CONTENT *content, JSON_VALUE *value) {
+static PARSE_STATE ParseString(JSON_CONTENT *content, JSON_VALUE *value) {
     const char *s;
     unsigned u;
     char tmp;
@@ -183,21 +181,21 @@ static int ParseString(JSON_CONTENT *content, JSON_VALUE *value) {
         switch (tmp) {
             case '\\':
                 switch (*s++) {
-                    case '\\':StringStackPush(content, '\\');
+                    case '\\':PUTC(content, '\\');
                         break;
-                    case '\"':StringStackPush(content, '\"');
+                    case '\"':PUTC(content, '\"');
                         break;
-                    case '/':StringStackPush(content, '/');
+                    case '/':PUTC(content, '/');
                         break;
-                    case 'b':StringStackPush(content, '\b');
+                    case 'b':PUTC(content, '\b');
                         break;
-                    case 'f':StringStackPush(content, '\f');
+                    case 'f':PUTC(content, '\f');
                         break;
-                    case 'n':StringStackPush(content, '\n');
+                    case 'n':PUTC(content, '\n');
                         break;
-                    case 'r':StringStackPush(content, '\r');
+                    case 'r':PUTC(content, '\r');
                         break;
-                    case 't':StringStackPush(content, '\t');
+                    case 't':PUTC(content, '\t');
                         break;
                     case 'u':
                         if (!(s = ParseHex4(s, &u)))
@@ -219,14 +217,52 @@ static int ParseString(JSON_CONTENT *content, JSON_VALUE *value) {
                     default:STRING_ERROR(JSON_PARSE_INVALID_STRING_ESCAPE);
                 }
                 break;
-            case '\"':SetString(value, StringStackPop(content, content->top - head), content->size);
+            case '\"':SetString(value, ContentStackPop(content, content->top - head), content->size);
+                content->json = s;
                 return JSON_PARSE_OK;
             case '\0':STRING_ERROR(JSON_PARSE_MISS_QUOTATION_MARK);
             default:
                 if ((unsigned char) tmp < 0x20)
                     STRING_ERROR(JSON_PARSE_INVALID_STRING_CHAR);
-                StringStackPush(content, tmp);
+                PUTC(content, tmp);
         }
+    }
+}
+
+// ARRAY
+static PARSE_STATE ParseValue(JSON_CONTENT *content, JSON_VALUE *value);
+
+static PARSE_STATE ParseArray(JSON_CONTENT *content, JSON_VALUE *value) {
+    size_t size = 0;
+    assert(*content->json == '[');
+    ++content->json;
+
+    for (;; ++size) {
+        JSON_VALUE value1;
+        value->a.v = new JSON_VALUE[256]();
+        if (*content->json == ',')
+            ++content->json;
+        if (ParseValue(content, &value1) == JSON_PARSE_OK)
+            memcpy(ContentStackPush(content, sizeof(value1)), &value1, sizeof(value1));
+        else
+            return JSON_PARSE_INVALID_VALUE;
+        if (*content->json == ']') {
+            ++content->json;
+            break;
+        }
+    }
+    return JSON_PARSE_OK;
+}
+
+static PARSE_STATE ParseValue(JSON_CONTENT *content, JSON_VALUE *value) {
+    switch (*content->json) {
+        case 't':return ParseKey(content, value, "true", JSON_TRUE);
+        case 'f':return ParseKey(content, value, "false", JSON_FALSE);
+        case 'n':return ParseKey(content, value, "null", JSON_NULL);
+        case '"':return ParseString(content, value);
+        case '[':return ParseArray(content, value);
+        case '\0':return JSON_PARSE_EXPECT_VALUE;
+        default:return ParseNumber(content, value);
     }
 }
 

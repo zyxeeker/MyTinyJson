@@ -28,10 +28,8 @@ enum PARSE_STATE {
 
 struct JSON_VALUE {
     union {
-        struct {
-            char *s;
-            size_t len;
-        } s;
+        struct { JSON_VALUE *v; size_t len; } a;
+        struct { char *s; size_t len; } s;
         double num;
     };
     JSON_TYPE type;

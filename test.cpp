@@ -8,73 +8,80 @@
 #include "parse.hpp"
 
 TEST(Value_NULL, test) {
-    std::string dst = "null";
-    std::string src_ = "null x";
-    std::string src = "null";
-    EXPECT_EQ(JSON_PARSE_OK, ParseKey(&src, &dst, JSON_NULL));
-    EXPECT_EQ(JSON_PARSE_INVALID_VALUE, ParseKey(&src_, &dst, JSON_NULL));
+    JSON_CONTENT c;
+    JSON_VALUE v;
+    c.size = c.top = 0;
+    const char *dst = "null";
+    c.json = "null";
+    EXPECT_EQ(JSON_PARSE_OK, ParseKey(&c, &v, dst, JSON_NULL));
 }
 
 TEST(Value_TRUE, test) {
-    std::string dst = "true";
-    std::string src_ = "true x";
-    std::string src = "true";
-    EXPECT_EQ(JSON_PARSE_OK, ParseKey(&src, &dst, JSON_TRUE));
-    EXPECT_EQ(JSON_PARSE_INVALID_VALUE, ParseKey(&src_, &dst, JSON_TRUE));
+    JSON_CONTENT c;
+    JSON_VALUE v;
+    c.size = c.top = 0;
+    const char *dst = "true";
+    c.json = "true";
+    EXPECT_EQ(JSON_PARSE_OK, ParseKey(&c, &v, dst, JSON_TRUE));
 }
 
 TEST(Value_FALSE, test) {
-    std::string dst = "false";
-    std::string src_ = "false x";
-    std::string src = "false";
-    EXPECT_EQ(JSON_PARSE_OK, ParseKey(&src, &dst, JSON_FALSE));
-    EXPECT_EQ(JSON_PARSE_INVALID_VALUE, ParseKey(&src_, &dst, JSON_FALSE));
+    JSON_CONTENT c;
+    JSON_VALUE v;
+    c.size = c.top = 0;
+    const char *dst = "false";
+    c.json = "false";
+    EXPECT_EQ(JSON_PARSE_OK, ParseKey(&c, &v, dst, JSON_FALSE));
 }
 
 TEST(Value_NUM, test) {
-    std::string t = "1";
-    std::string src1 = "4.9406564584124654e-324";
-    std::string src2 = "-4.9406564584124654e-324";
-    std::string src3 = "2.2250738585072009e-308";
-    std::string src4 = "-2.2250738585072009e-308";
-    std::string src5 = "2.2250738585072014e-308";
-    std::string src6 = "-2.2250738585072014e-308";
-    std::string src7 = "1.7976931348623157e+308";
-
-    EXPECT_EQ(JSON_PARSE_OK, ParseNumber(&src1, JSON_NULL)); /* minimum denormal */
-    EXPECT_EQ(JSON_PARSE_OK, ParseNumber(&src2, JSON_NULL));
-    EXPECT_EQ(JSON_PARSE_OK, ParseNumber(&src3, JSON_NULL));  /* Max subnormal double */
-    EXPECT_EQ(JSON_PARSE_OK, ParseNumber(&src4, JSON_NULL));
-    EXPECT_EQ(JSON_PARSE_OK, ParseNumber(&src5, JSON_NULL));  /* Min normal positive double */
-    EXPECT_EQ(JSON_PARSE_OK, ParseNumber(&src6, JSON_NULL));
-    EXPECT_EQ(JSON_PARSE_OK, ParseNumber(&src7, JSON_NULL));  /* Max double */
-    EXPECT_EQ(JSON_PARSE_OK, ParseNumber(&t, JSON_NULL));
+    JSON_CONTENT c;
+    JSON_VALUE v;
+    c.size = c.top = 0;
+    c.json = "1";
+    EXPECT_EQ(JSON_PARSE_OK, ParseNumber(&c, &v)); /* minimum denormal */
+    c.json = "4.9406564584124654e-324";
+    EXPECT_EQ(JSON_PARSE_OK, ParseNumber(&c, &v));
+    c.json = "-4.9406564584124654e-324";
+    EXPECT_EQ(JSON_PARSE_OK, ParseNumber(&c, &v));  /* Max subnormal double */
+    c.json = "2.2250738585072009e-308";
+    EXPECT_EQ(JSON_PARSE_OK, ParseNumber(&c, &v));
+    c.json = "-2.2250738585072009e-308";
+    EXPECT_EQ(JSON_PARSE_OK, ParseNumber(&c, &v));  /* Min normal positive double */
+    c.json = "2.2250738585072014e-308";
+    EXPECT_EQ(JSON_PARSE_OK, ParseNumber(&c, &v));
+    c.json = "-2.2250738585072014e-308";
+    EXPECT_EQ(JSON_PARSE_OK, ParseNumber(&c, &v));  /* Max double */
+    c.json = "1.7976931348623157e+308";
+    EXPECT_EQ(JSON_PARSE_OK, ParseNumber(&c, &v));
 }
 
 TEST(Value_NUM, ERROR_TEST) {
-    std::string src1 = "nul";
-    std::string src2 = "?";
-    std::string src3 = "+0";
-    std::string src4 = "+1";
-    std::string src5 = ".123";
-    std::string src6 = "1.";
-    std::string src7 = "INF";
-    std::string src8 = "inf";
-    std::string src9 = "NAN";
-    std::string src0 = "nan";
-    std::string src = "E";
-    EXPECT_EQ(JSON_PARSE_INVALID_VALUE, ParseNumber(&src, JSON_NULL));
-    EXPECT_EQ(JSON_PARSE_INVALID_VALUE, ParseNumber(&src1, JSON_NULL));
-    EXPECT_EQ(JSON_PARSE_INVALID_VALUE, ParseNumber(&src2, JSON_NULL));
-    EXPECT_EQ(JSON_PARSE_INVALID_VALUE, ParseNumber(&src3, JSON_NULL));
-    EXPECT_EQ(JSON_PARSE_INVALID_VALUE, ParseNumber(&src4, JSON_NULL));
-    EXPECT_EQ(JSON_PARSE_INVALID_VALUE, ParseNumber(&src5, JSON_NULL));
-    EXPECT_EQ(JSON_PARSE_INVALID_VALUE, ParseNumber(&src6, JSON_NULL));
-    EXPECT_EQ(JSON_PARSE_INVALID_VALUE, ParseNumber(&src7, JSON_NULL));
-    EXPECT_EQ(JSON_PARSE_INVALID_VALUE, ParseNumber(&src8, JSON_NULL));
-    EXPECT_EQ(JSON_PARSE_INVALID_VALUE, ParseNumber(&src9, JSON_NULL));
-    EXPECT_EQ(JSON_PARSE_INVALID_VALUE, ParseNumber(&src0, JSON_NULL));
-
+    JSON_CONTENT c;
+    JSON_VALUE v;
+    c.size = c.top = 0;
+    c.json = "nul";
+    EXPECT_EQ(JSON_PARSE_INVALID_VALUE, ParseNumber(&c, &v));
+    c.json = "?";
+    EXPECT_EQ(JSON_PARSE_INVALID_VALUE, ParseNumber(&c, &v));
+    c.json = "+0";
+    EXPECT_EQ(JSON_PARSE_INVALID_VALUE, ParseNumber(&c, &v));
+    c.json = "+1";
+    EXPECT_EQ(JSON_PARSE_INVALID_VALUE, ParseNumber(&c, &v));
+    c.json = ".123";
+    EXPECT_EQ(JSON_PARSE_INVALID_VALUE, ParseNumber(&c, &v));
+    c.json = "1.";
+    EXPECT_EQ(JSON_PARSE_INVALID_VALUE, ParseNumber(&c, &v));
+    c.json = "INF";
+    EXPECT_EQ(JSON_PARSE_INVALID_VALUE, ParseNumber(&c, &v));
+    c.json = "inf";
+    EXPECT_EQ(JSON_PARSE_INVALID_VALUE, ParseNumber(&c, &v));
+    c.json = "NAN";
+    EXPECT_EQ(JSON_PARSE_INVALID_VALUE, ParseNumber(&c, &v));
+    c.json = "nan";
+    EXPECT_EQ(JSON_PARSE_INVALID_VALUE, ParseNumber(&c, &v));
+    c.json = "E";
+    EXPECT_EQ(JSON_PARSE_INVALID_VALUE, ParseNumber(&c, &v));
 }
 
 void TEST_STRING(char *expect, char *json) {
@@ -154,6 +161,15 @@ TEST(Value_STRING_ERROR, test) {
     TEST_STRING_ERROR(JSON_PARSE_INVALID_UNICODE_SURROGATE, "\"\\uD800\\\\\"");
     TEST_STRING_ERROR(JSON_PARSE_INVALID_UNICODE_SURROGATE, "\"\\uD800\\uDBFF\"");
     TEST_STRING_ERROR(JSON_PARSE_INVALID_UNICODE_SURROGATE, "\"\\uD800\\uE000\"");
+}
+
+TEST(ARRAY_TEST, test) {
+    JSON_VALUE v;
+    JSON_CONTENT c;
+    c.json = "[\"asas\",[1,2]]";
+//    c.json = "[[1,2]]";
+    c.size = c.top = 0;
+    EXPECT_EQ(JSON_PARSE_OK, ParseArray(&c, &v));
 }
 
 int main() {
