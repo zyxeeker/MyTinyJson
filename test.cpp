@@ -164,12 +164,13 @@ TEST(Value_STRING_ERROR, test) {
 }
 
 TEST(ARRAY_TEST, test) {
-    JSON_VALUE v;
-    JSON_CONTENT c;
-    c.json = "[\"asas\",[1,2]]";
-//    c.json = "[[1,2]]";
-    c.size = c.top = 0;
+    JSON_VALUE v{};
+    JSON_CONTENT c{};
+    c.json = "[123,false,\"abc\",true,123]";
     EXPECT_EQ(JSON_PARSE_OK, ParseArray(&c, &v));
+    EXPECT_EQ("abc", GetString(GetArrayElement(&v, 2)));
+    EXPECT_EQ(false, GetBool(GetArrayElement(&v, 1)));
+//    Free(&v);
 }
 
 int main() {

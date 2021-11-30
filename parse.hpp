@@ -10,7 +10,7 @@
 #include <cmath>
 #include "define.h"
 
-#define JSON_STRING_STACK_LENGTH 256
+#define JSON_STACK_LENGTH 256
 #define ISDIGIT(ch) ((ch) >= '0' && (ch) <= '9')
 #define ISDIGIT1TO9(ch) ((ch) >= '1' && (ch) <= '9')
 #define Init(v) do{(v)->type = JSON_NULL;}while(0)
@@ -21,7 +21,7 @@ static void *ContentStackPush(JSON_CONTENT *content, size_t c) {
     assert(c > 0);
     if (content->top + c >= content->size) {
         if (content->size == 0)
-            content->size = JSON_STRING_STACK_LENGTH;
+            content->size = JSON_STACK_LENGTH;
         while (content->top + c >= content->size)
             content->size += content->size >> 1;  /* content->size * 1.5 */
         content->stack = (char *) realloc(content->stack, content->size);
@@ -34,7 +34,8 @@ static void *ContentStackPush(JSON_CONTENT *content, size_t c) {
 
 static char *ContentStackPop(JSON_CONTENT *content, size_t size) {
     assert(content->top >= size);
-    return content->stack + (content->top - size);
+//    栈顶指针退回
+    return content->stack + (content->top -= size);
 }
 
 void SetString(JSON_VALUE *value, const char *s, size_t len);
@@ -42,7 +43,6 @@ void SetString(JSON_VALUE *value, const char *s, size_t len);
 static PARSE_STATE ParseKey(JSON_CONTENT *content, JSON_VALUE *value, const char *dst, JSON_TYPE type) {
     int i;
     for (i = 0; dst[i]; ++i) {
-        std::cout << content->json[i] << std::endl;
         if (content->json[i] != dst[i])
             return JSON_PARSE_INVALID_VALUE;
     }
@@ -81,45 +81,6 @@ static PARSE_STATE ParseNumber(JSON_CONTENT *content, JSON_VALUE *value) {
         }
     }
 #endif
-
-#if 0
-    if (*src == '-') ++src;
-    else if (!ISDIGIT(*src)) return JSON_PARSE_INVALID_VALUE;
-    if (src == src_end) return JSON_PARSE_INVALID_VALUE;
-    if (*src == '0') ++src;
-    else{
-        if (src == src_end) return JSON_PARSE_INVALID_VALUE;
-        for (;src != src_end; ++src){
-            if (ISDIGIT1TO9(*src)) continue;
-            else break;
-        }
-    }
-    if (*src == '.' && src == src_str->begin()) return JSON_PARSE_INVALID_VALUE;
-    else{
-        ++src;
-        if (src == src_end) return JSON_PARSE_INVALID_VALUE;
-        for (;src != src_end; ++src){
-            if (ISDIGIT(*src)) continue;
-            else break;
-        }
-    }
-    if (src != src_end) {
-        if (*src == 'E' || *src == 'e') {
-            if (src != src_end) ++src;
-            else return JSON_PARSE_INVALID_VALUE;
-        }
-        else{
-            if (src != src_end){
-                if (*src == '-' || *src == '+') ++src;
-            }
-            else return JSON_PARSE_INVALID_VALUE;
-            for (;src != src_end; ++src)
-                if (ISDIGIT(*src)) continue;
-                else break;
-
-        }
-    }
-#endif
     value->num = strtod(content->json, nullptr);
     errno = 0;
     if (errno == ERANGE && (value->num == HUGE_VAL || value->num == -HUGE_VAL))
@@ -131,8 +92,17 @@ static PARSE_STATE ParseNumber(JSON_CONTENT *content, JSON_VALUE *value) {
 
 static void Free(JSON_VALUE *value) {
     assert(value != nullptr);
-    if (value->type == JSON_STRING)
-        delete value->s.s;
+    switch (value->type) {
+        case JSON_STRING:free(value->s.s);
+            break;
+        case JSON_ARRAY:
+//            释放堆栈中的数据
+            for (size_t i = 0; i < value->a.len; ++i)
+                Free(&value->a.v[i]);
+//            释放本身
+            Free(value->a.v);
+            break;
+    }
     value->type = JSON_NULL;
 }
 
@@ -171,12 +141,11 @@ static PARSE_STATE ParseString(JSON_CONTENT *content, JSON_VALUE *value) {
     const char *s;
     unsigned u;
     char tmp;
-    size_t head = content->top;
+    size_t head = content->top, len = 0;
     assert(*content->json == '\"');
     ++content->json;
     s = content->json;
-    content->stack = new char[256]();
-    for (;; ++content->size) {
+    for (;; ++len) {
         tmp = *s++;
         switch (tmp) {
             case '\\':
@@ -217,7 +186,7 @@ static PARSE_STATE ParseString(JSON_CONTENT *content, JSON_VALUE *value) {
                     default:STRING_ERROR(JSON_PARSE_INVALID_STRING_ESCAPE);
                 }
                 break;
-            case '\"':SetString(value, ContentStackPop(content, content->top - head), content->size);
+            case '\"':SetString(value, ContentStackPop(content, len), len);
                 content->json = s;
                 return JSON_PARSE_OK;
             case '\0':STRING_ERROR(JSON_PARSE_MISS_QUOTATION_MARK);
@@ -233,25 +202,39 @@ static PARSE_STATE ParseString(JSON_CONTENT *content, JSON_VALUE *value) {
 static PARSE_STATE ParseValue(JSON_CONTENT *content, JSON_VALUE *value);
 
 static PARSE_STATE ParseArray(JSON_CONTENT *content, JSON_VALUE *value) {
-    size_t size = 0;
+    size_t i, size = 0;
+    PARSE_STATE ret;
     assert(*content->json == '[');
     ++content->json;
-
-    for (;; ++size) {
-        JSON_VALUE value1;
-        value->a.v = new JSON_VALUE[256]();
+    if (*content->json == ']') {
+        value->type = JSON_ARRAY;
+        value->a.len = 0;
+        value->a.v = nullptr;
+        ++content->json;
+        return JSON_PARSE_OK;
+    }
+    for (;;) {
+        JSON_VALUE value1{};
+        if ((ret = ParseValue(content, &value1)) != JSON_PARSE_OK)
+            break;
+        memcpy(ContentStackPush(content, sizeof(value1)), &value1, sizeof(value1));
+        ++size;
         if (*content->json == ',')
             ++content->json;
-        if (ParseValue(content, &value1) == JSON_PARSE_OK)
-            memcpy(ContentStackPush(content, sizeof(value1)), &value1, sizeof(value1));
-        else
-            return JSON_PARSE_INVALID_VALUE;
-        if (*content->json == ']') {
+        else if (*content->json == ']') {
             ++content->json;
-            break;
-        }
+            value->type = JSON_ARRAY;
+            value->a.len = size;
+            size *= sizeof(JSON_VALUE);
+            memcpy(value->a.v = (JSON_VALUE *) malloc(size), ContentStackPop(content, size), size);
+            return JSON_PARSE_OK;
+        } else
+            return JSON_PARSE_MISS_COMMA_OR_SQUARE_BRACKET;
     }
-    return JSON_PARSE_OK;
+//    解析错误时释放前面已解析到堆栈中的数据
+    for (i = 0; i < size; ++i)
+        Free(reinterpret_cast<JSON_VALUE *>(ContentStackPop(content, size)));
+    return ret;
 }
 
 static PARSE_STATE ParseValue(JSON_CONTENT *content, JSON_VALUE *value) {
@@ -309,6 +292,16 @@ static std::string GetString(JSON_VALUE *value) {
 
 static size_t GetStringLength(JSON_VALUE *value) {
     return value->s.len;
+}
+
+JSON_TYPE GetElementType(const JSON_VALUE *v) {
+    return v->type;
+}
+
+JSON_VALUE *GetArrayElement(const JSON_VALUE *v, size_t index) {
+    assert(v != NULL && v->type == JSON_ARRAY);
+    assert(index < v->a.len);
+    return &v->a.v[index];
 }
 
 #endif //MYTINYJSON_PARSE_HPP
