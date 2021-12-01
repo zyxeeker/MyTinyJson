@@ -13,7 +13,8 @@ enum JSON_TYPE {
     JSON_FALSE,
     JSON_NUMBER,
     JSON_STRING,
-    JSON_ARRAY
+    JSON_ARRAY,
+    JSON_OBJECT
 };
 
 enum PARSE_STATE {
@@ -27,16 +28,28 @@ enum PARSE_STATE {
     JSON_PARSE_INVALID_STRING_CHAR,
     JSON_PARSE_INVALID_UNICODE_HEX,//7
     JSON_PARSE_INVALID_UNICODE_SURROGATE,
-    JSON_PARSE_MISS_COMMA_OR_SQUARE_BRACKET
+    JSON_PARSE_MISS_COMMA_OR_SQUARE_BRACKET,
+    JSON_PARSE_MISS_KEY,
+    JSON_PARSE_MISS_COLON,
+    JSON_PARSE_MISS_COMMA_OR_CURLY_BRACKET
 };
+
+struct JSON_MEMBER;
 
 struct JSON_VALUE {
     union {
+        struct { JSON_MEMBER *m; size_t len; } o;
         struct { JSON_VALUE *v; size_t len; } a;
         struct { char *s; size_t len; } s;
         double num;
     };
     JSON_TYPE type;
+};
+
+struct JSON_MEMBER {
+    char *k;
+    size_t len;
+    JSON_VALUE v;
 };
 
 struct JSON_CONTENT {

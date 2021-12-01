@@ -85,10 +85,11 @@ TEST(Value_NUM, ERROR_TEST) {
 }
 
 void TEST_STRING(char *expect, char *json) {
-    JSON_VALUE v;
-    JSON_CONTENT s;
+    JSON_VALUE v{};
+    JSON_CONTENT s{};
     s.json = json;
     s.size = s.top = 0;
+    s.stack = nullptr;
     Init(&v);
     EXPECT_EQ(JSON_PARSE_OK, ParseString(&s, &v));
     EXPECT_EQ(expect, GetString(&v));
@@ -173,7 +174,101 @@ TEST(ARRAY_TEST, test) {
 //    Free(&v);
 }
 
+TEST(OBJECT_ERROR_TEST, test) {
+    JSON_VALUE v{};
+    JSON_CONTENT c{};
+    c.json = "{:1,";
+    EXPECT_EQ(JSON_PARSE_MISS_KEY, ParseObject(&c, &v));
+    c.json = "{true:1,";
+    EXPECT_EQ(JSON_PARSE_MISS_KEY, ParseObject(&c, &v));
+    c.json = "{false:1,";
+    EXPECT_EQ(JSON_PARSE_MISS_KEY, ParseObject(&c, &v));
+    c.json = "{null:1,";
+    EXPECT_EQ(JSON_PARSE_MISS_KEY, ParseObject(&c, &v));
+    c.json = "{null:1,";
+    EXPECT_EQ(JSON_PARSE_MISS_KEY, ParseObject(&c, &v));
+    c.json = "{[]:1,";
+    EXPECT_EQ(JSON_PARSE_MISS_KEY, ParseObject(&c, &v));
+    c.json = "{{}:1,";
+    EXPECT_EQ(JSON_PARSE_MISS_KEY, ParseObject(&c, &v));
+    c.json = "{\"a\":1,";//
+    EXPECT_EQ(JSON_PARSE_MISS_KEY, ParseObject(&c, &v));
+    c.json = "{\"a\"}";
+    EXPECT_EQ(JSON_PARSE_MISS_COLON, ParseObject(&c, &v));
+    c.json = "{\"a\",\"b\"}";
+    EXPECT_EQ(JSON_PARSE_MISS_COLON, ParseObject(&c, &v));
+    c.json = "{\"a\":1";
+    EXPECT_EQ(JSON_PARSE_MISS_COMMA_OR_CURLY_BRACKET, ParseObject(&c, &v));
+    c.json = "{\"a\":1]";
+    EXPECT_EQ(JSON_PARSE_MISS_COMMA_OR_CURLY_BRACKET, ParseObject(&c, &v));
+    c.json = "{\"a\":1\"b\"";
+    EXPECT_EQ(JSON_PARSE_MISS_COMMA_OR_CURLY_BRACKET, ParseObject(&c, &v));
+    c.json = "{\"a\":{}";
+    EXPECT_EQ(JSON_PARSE_MISS_COMMA_OR_CURLY_BRACKET, ParseObject(&c, &v));
+}
+
+#define EXPECT_EQ_KEY(expect, actual, alength) \
+    do {\
+        if(memcmp(expect, actual, alength) != 0) \
+        LOG("except:"<<(expect)<<"actual:"<<(actual)<<"length:"<<(alength)) \
+    }while(0);
+
+TEST(OBJECT_PRASE_TEST, test) {
+    JSON_VALUE v{};;
+    JSON_CONTENT c{};
+    size_t i, j;
+//    lept_init(&v);
+
+    c.json = "{}";
+    EXPECT_EQ(JSON_PARSE_OK, ParseObject(&c, &v));
+    EXPECT_EQ(JSON_OBJECT, GetElementType(&v));
+    EXPECT_EQ(0, GetObjectSize(&v));
+
+//    lept_free(&v);
+//    lept_init(&v);
+
+    c.json = "{"
+             "\"n\":null"
+             ","
+             "\"f\":false,"
+             "\"t\":true,"
+             "\"i\":123,"
+             "\"s\":\"abc\","
+             "\"a\":[1,2,3],"
+             "\"o\":{\"1\":1,\"2\":2,\"3\":3}"
+             "}";
+    EXPECT_EQ(JSON_PARSE_OK, ParseObject(&c, &v));
+    EXPECT_EQ(JSON_OBJECT, GetElementType(&v));
+    EXPECT_EQ_KEY("n", GetObjectKey(&v, 0), GetObjectKeyLength(&v, 0));
+    EXPECT_EQ(JSON_NULL, GetElementType(GetObjectValue(&v, 0)));
+    EXPECT_EQ_KEY("f", GetObjectKey(&v, 1), GetObjectKeyLength(&v, 1));
+    EXPECT_EQ(JSON_FALSE, GetElementType(GetObjectValue(&v, 1)));
+    EXPECT_EQ_KEY("t", GetObjectKey(&v, 2), GetObjectKeyLength(&v, 2));
+    EXPECT_EQ(JSON_TRUE, GetElementType(GetObjectValue(&v, 2)));
+    EXPECT_EQ_KEY("i", GetObjectKey(&v, 3), GetObjectKeyLength(&v, 3));
+    EXPECT_EQ(JSON_NUMBER, GetElementType(GetObjectValue(&v, 3)));
+    EXPECT_EQ(123.0, GetNum(GetObjectValue(&v, 3)));
+    EXPECT_EQ_KEY("s", GetObjectKey(&v, 4), GetObjectKeyLength(&v, 4));
+    EXPECT_EQ(JSON_STRING, GetElementType(GetObjectValue(&v, 4)));
+    EXPECT_EQ("abc", GetString(GetObjectValue(&v, 4)));
+    EXPECT_EQ_KEY("a", GetObjectKey(&v, 5), GetObjectKeyLength(&v, 5));
+    EXPECT_EQ(JSON_ARRAY, GetElementType(GetObjectValue(&v, 5)));
+    for (j = 0; j < GetArraySize(GetObjectValue(&v, 5)); ++j) {
+        LOG(GetNum(GetArrayElement(GetObjectValue(&v, 5), j)));
+    }
+    EXPECT_EQ_KEY("o", GetObjectKey(&v, 6), GetObjectKeyLength(&v, 6));
+    EXPECT_EQ(JSON_OBJECT, GetElementType(GetObjectValue(&v, 6)));
+    for (j = 0; j < GetObjectSize(GetObjectValue(&v, 6)); ++j) {
+        LOG("KEY:" << GetObjectKey(GetObjectValue(&v, 6), j));
+        LOG("VALUE:" << GetNum(GetObjectValue(GetObjectValue(&v, 6), j)));
+    }
+}
+
 int main() {
+//    JSON_VALUE v{};
+//    JSON_CONTENT c{};
+//    c.json = "{\"a\":1,";
+//    EXPECT_EQ(JSON_PARSE_MISS_KEY, ParseObject(&c,&v));
     testing::InitGoogleTest();
     return RUN_ALL_TESTS();
 }

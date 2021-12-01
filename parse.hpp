@@ -102,6 +102,13 @@ static void Free(JSON_VALUE *value) {
 //            释放本身
             Free(value->a.v);
             break;
+        case JSON_OBJECT:
+            for (size_t i = 0; i < value->o.len; ++i) {
+                free(value->o.m[i].k);
+                Free(&value->o.m[i].v);
+            }
+            free(value->o.m);
+            break;
     }
     value->type = JSON_NULL;
 }
@@ -118,26 +125,98 @@ static const char *ParseHex4(const char *p, unsigned *u) {
     return p;
 }
 
-static void EncodeUtf8(JSON_CONTENT *content, unsigned u) {
+static void EncodeUtf8(JSON_CONTENT *content, unsigned u, size_t *len) {
     assert(u >= 0x00 && u <= 0x10FFFF);
     if (u >= 0x00 && u <= 0x7F) {
         PUTC(content, u);
     } else if (u >= 0x80 && u <= 0x7FF) {
         PUTC(content, (0xC0 | ((u >> 6) & 0x1F)));
         PUTC(content, (0x80 | (u & 0x3F)));
+        ++*len;
     } else if (u >= 0x800 && u <= 0xFFFF) {
         PUTC(content, (0xE0 | ((u >> 12) & 0xFF)));
         PUTC(content, (0x80 | ((u >> 6) & 0x3F)));
         PUTC(content, (0x80 | (u & 0x3F)));
+        *len += 2;
     } else if (u >= 0x10000 && u <= 0x10FFFF) {
         PUTC(content, (0xF0 | ((u >> 18) & 0x7)));
         PUTC(content, (0x80 | ((u >> 12) & 0x3F)));
         PUTC(content, (0x80 | ((u >> 6) & 0x3F)));
         PUTC(content, (0x80 | (u & 0x3F)));
+        *len += 3;
+    }
+}
+
+static PARSE_STATE ParseRawString(JSON_CONTENT *content, char **str, size_t *len) {
+    unsigned u;
+    char tmp;
+    const char *s;
+    size_t head = content->top;
+    assert(*content->json == '\"');
+    ++content->json;
+    s = content->json;
+    for (;; ++*len) {
+        tmp = *s++;
+        switch (tmp) {
+            case '\\':
+                switch (*s++) {
+                    case '\\':PUTC(content, '\\');
+                        break;
+                    case '\"':PUTC(content, '\"');
+                        break;
+                    case '/':PUTC(content, '/');
+                        break;
+                    case 'b':PUTC(content, '\b');
+                        break;
+                    case 'f':PUTC(content, '\f');
+                        break;
+                    case 'n':PUTC(content, '\n');
+                        break;
+                    case 'r':PUTC(content, '\r');
+                        break;
+                    case 't':PUTC(content, '\t');
+                        break;
+                    case 'u':
+                        if (!(s = ParseHex4(s, &u)))
+                            STRING_ERROR(JSON_PARSE_INVALID_UNICODE_HEX);
+                        if (u >= 0xD800 && u <= 0xDBFF) {
+                            unsigned h = u;
+                            if (*s++ != '\\')
+                                STRING_ERROR(JSON_PARSE_INVALID_UNICODE_SURROGATE);
+                            if (*s++ != 'u')
+                                STRING_ERROR(JSON_PARSE_INVALID_UNICODE_SURROGATE);
+                            if (!(s = ParseHex4(s, &u)))
+                                STRING_ERROR(JSON_PARSE_INVALID_UNICODE_HEX);
+                            if (u < 0xDC00 || u > 0xDFFF)
+                                STRING_ERROR(JSON_PARSE_INVALID_UNICODE_SURROGATE);
+                            u = 0x10000 + (h - 0xD800) * 0x400 + u - 0xDC00;
+                        }
+                        EncodeUtf8(content, u, len);
+                        break;
+                    default:STRING_ERROR(JSON_PARSE_INVALID_STRING_ESCAPE);
+                }
+                break;
+            case '\"':*str = ContentStackPop(content, *len);
+                content->json = s;
+                return JSON_PARSE_OK;
+            case '\0':STRING_ERROR(JSON_PARSE_MISS_QUOTATION_MARK);
+            default:
+                if ((unsigned char) tmp < 0x20)
+                    STRING_ERROR(JSON_PARSE_INVALID_STRING_CHAR);
+                PUTC(content, tmp);
+        }
     }
 }
 
 static PARSE_STATE ParseString(JSON_CONTENT *content, JSON_VALUE *value) {
+#if 1
+    PARSE_STATE ret;
+    char *s;
+    size_t len = 0;
+    if ((ret = ParseRawString(content, &s, &len)) == JSON_PARSE_OK)
+        SetString(value, s, len);
+    return ret;
+#else
     const char *s;
     unsigned u;
     char tmp;
@@ -196,6 +275,7 @@ static PARSE_STATE ParseString(JSON_CONTENT *content, JSON_VALUE *value) {
                 PUTC(content, tmp);
         }
     }
+#endif
 }
 
 // ARRAY
@@ -237,6 +317,8 @@ static PARSE_STATE ParseArray(JSON_CONTENT *content, JSON_VALUE *value) {
     return ret;
 }
 
+static PARSE_STATE ParseObject(JSON_CONTENT *content, JSON_VALUE *value);
+
 static PARSE_STATE ParseValue(JSON_CONTENT *content, JSON_VALUE *value) {
     switch (*content->json) {
         case 't':return ParseKey(content, value, "true", JSON_TRUE);
@@ -244,9 +326,73 @@ static PARSE_STATE ParseValue(JSON_CONTENT *content, JSON_VALUE *value) {
         case 'n':return ParseKey(content, value, "null", JSON_NULL);
         case '"':return ParseString(content, value);
         case '[':return ParseArray(content, value);
+        case '{':return ParseObject(content, value);
         case '\0':return JSON_PARSE_EXPECT_VALUE;
         default:return ParseNumber(content, value);
     }
+}
+
+// OBJECT
+static PARSE_STATE ParseObject(JSON_CONTENT *content, JSON_VALUE *value) {
+    size_t size, i, len;
+    i = size = len = 0;
+    JSON_MEMBER m{};
+    PARSE_STATE ret;
+    assert(*content->json == '{');
+    ++content->json;
+//    lept_parse_whitespace(c);
+    if (*content->json == '}') {
+        content->json++;
+        value->type = JSON_OBJECT;
+        value->o.m = nullptr;
+        value->o.len = 0;
+        return JSON_PARSE_OK;
+    }
+    m.k = nullptr;
+    for (;;) {
+        char *tmp = nullptr;
+        len = 0;
+        m.v.type = JSON_NULL;
+        if (*content->json != '"') {
+            ret = JSON_PARSE_MISS_KEY;
+            break;
+        } else if ((ret = ParseRawString(content, &tmp, &len)) != JSON_PARSE_OK)
+            break;
+        memcpy(m.k = (char *) malloc(len + 1), tmp, len);
+        m.k[len] = '\0';
+        m.len = len;
+        if (*content->json != ':') {
+            ret = JSON_PARSE_MISS_COLON;
+            break;
+        }
+        ++content->json;
+
+        if ((ret = ParseValue(content, &m.v)) != JSON_PARSE_OK)
+            break;
+        memcpy(ContentStackPush(content, sizeof(JSON_MEMBER)), &m, sizeof(JSON_MEMBER));
+        ++size;
+        m.k = nullptr;
+        if (*content->json == ',') {
+            ++content->json;
+        } else if (*content->json == '}') {
+            size_t s = sizeof(JSON_MEMBER) * size;
+            value->type = JSON_OBJECT;
+            value->o.len = size;
+            content->json++;
+            memcpy(value->o.m = (JSON_MEMBER *) malloc(s), ContentStackPop(content, s), s);
+            return JSON_PARSE_OK;
+        } else {
+            ret = JSON_PARSE_MISS_COMMA_OR_CURLY_BRACKET;
+            break;
+        }
+    }
+    free(m.k);
+    for (i = 0; i < size; ++i) {
+        auto mTmp = reinterpret_cast<JSON_MEMBER *>(ContentStackPop(content, sizeof(JSON_MEMBER)));
+        free(mTmp->k);
+        Free(&mTmp->v);
+    }
+    return ret;
 }
 
 // NUM
@@ -287,11 +433,37 @@ static void SetString(JSON_VALUE *value, const char *s, size_t len) {
 }
 
 static std::string GetString(JSON_VALUE *value) {
+    assert(value != nullptr && value->type == JSON_STRING);
     return value->s.s;
 }
 
 static size_t GetStringLength(JSON_VALUE *value) {
+    assert(value != nullptr && value->type == JSON_STRING);
     return value->s.len;
+}
+
+//OBJECT
+size_t GetObjectSize(const JSON_VALUE *value) {
+    assert(value != nullptr && value->type == JSON_OBJECT);
+    return value->o.len;
+}
+
+const char *GetObjectKey(const JSON_VALUE *value, size_t index) {
+    assert(value->type == JSON_OBJECT);
+    assert(value != nullptr && index < value->o.len);
+    return value->o.m[index].k;
+}
+
+size_t GetObjectKeyLength(const JSON_VALUE *value, size_t index) {
+    assert(value->type == JSON_OBJECT);
+    assert(value != nullptr && index < value->o.len);
+    return value->o.m[index].len;
+}
+
+JSON_VALUE *GetObjectValue(const JSON_VALUE *value, size_t index) {
+    assert(value->type == JSON_OBJECT);
+    assert(value != nullptr && index < value->o.len);
+    return &value->o.m[index].v;
 }
 
 JSON_TYPE GetElementType(const JSON_VALUE *v) {
@@ -299,9 +471,14 @@ JSON_TYPE GetElementType(const JSON_VALUE *v) {
 }
 
 JSON_VALUE *GetArrayElement(const JSON_VALUE *v, size_t index) {
-    assert(v != NULL && v->type == JSON_ARRAY);
+    assert(v != nullptr && v->type == JSON_ARRAY);
     assert(index < v->a.len);
     return &v->a.v[index];
+}
+
+size_t GetArraySize(const JSON_VALUE *v) {
+    assert(v != nullptr && v->type == JSON_ARRAY);
+    return v->a.len;
 }
 
 #endif //MYTINYJSON_PARSE_HPP
