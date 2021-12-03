@@ -214,7 +214,7 @@ TEST(OBJECT_ERROR_TEST, test) {
     }while(0);
 
 TEST(OBJECT_PRASE_TEST, test) {
-    JSON_VALUE v{};;
+    JSON_VALUE v{};
     JSON_CONTENT c{};
     size_t i, j;
 
@@ -257,6 +257,19 @@ TEST(OBJECT_PRASE_TEST, test) {
         LOG("VALUE:" << GetNum(GetObjectValue(GetObjectValue(&v, 6), j)));
     }
     Free(&v);
+}
+
+TEST(JSON_STRINGIFY, test) {
+    JSON_VALUE v{};
+    EXPECT_EQ(JSON_PARSE_OK,
+              ParseJsonString(
+                  "{\"n\":null,\"f\":false,\"t\":true,\"i\":123,\"s\":\"a\\bbc\",\"a\":[1,2,3],\"o\":{\"1\":1,\"2\":2,\"3\":3}}",
+                  &v));
+//    EXPECT_EQ(JSON_PARSE_OK, ParseJsonString("{}",&v));
+    char *json;
+    size_t l = 0;
+    EXPECT_EQ(STRINGIFY_STATE::JSON_STRINGIFY_OK, JSONStringify(&v, &json, &l));
+    LOG(json);
 }
 
 int main() {

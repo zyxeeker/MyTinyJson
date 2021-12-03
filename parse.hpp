@@ -16,6 +16,9 @@
 #define Init(v) do{(v)->type = JSON_NULL;}while(0)
 #define STRING_ERROR(ret) do{content->top = head; return ret;}while(0)
 #define PUTC(c, ch) do { *(char*)ContentStackPush(c, sizeof(char)) = (ch); } while(0)
+#define PUTS(c, s, len)     memcpy((char*)ContentStackPush(c, len), s, len)
+
+static const char hexDigits[] = {'0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F'};
 
 static void *ContentStackPush(JSON_CONTENT *content, size_t c) {
     assert(c > 0);
@@ -510,6 +513,109 @@ PARSE_STATE ParseJsonString(const char *json, JSON_VALUE *value) {
     assert(content.top == 0);
     free(content.stack);
     return ret;
+}
+
+STRINGIFY_STATE JSONStringifyValue(JSON_CONTENT *content, const JSON_VALUE *value);
+
+void JSONStringifyString(JSON_CONTENT *content, const JSON_VALUE *value) {
+    assert(value->s.s != nullptr);
+    size_t i, size;
+    char *head, *p;
+    // "\u00xx..."
+    p = head = reinterpret_cast<char *>(ContentStackPush(content, size = value->s.len * 6 + 2));
+    *p++ = '"';
+    for (i = 0; i < value->s.len; i++) {
+        auto ch = (unsigned char) value->s.s[i];
+        switch (ch) {
+            case '\"': *p++ = '\\';
+                *p++ = '\"';
+                break;
+            case '\\': *p++ = '\\';
+                *p++ = '\\';
+                break;
+            case '\b': *p++ = '\\';
+                *p++ = 'b';
+                break;
+            case '\f': *p++ = '\\';
+                *p++ = 'f';
+                break;
+            case '\n': *p++ = '\\';
+                *p++ = 'n';
+                break;
+            case '\r': *p++ = '\\';
+                *p++ = 'r';
+                break;
+            case '\t': *p++ = '\\';
+                *p++ = 't';
+                break;
+            default:
+                if (ch < 0x20) {
+                    *p++ = '\\';
+                    *p++ = 'u';
+                    *p++ = '0';
+                    *p++ = '0';
+                    *p++ = hexDigits[ch >> 4];
+                    *p++ = hexDigits[ch & 15];
+                } else
+                    *p++ = value->s.s[i];
+        }
+    }
+    *p++ = '"';
+    content->top -= size - (p - head);
+
+}
+
+STRINGIFY_STATE JSONStringifyValue(JSON_CONTENT *content, const JSON_VALUE *value) {
+    size_t i;
+    switch (value->type) {
+        case JSON_NULL:PUTS(content, "null", 4);
+            break;
+        case JSON_TRUE:PUTS(content, "true", 4);
+            break;
+        case JSON_FALSE:PUTS(content, "false", 5);
+            break;
+        case JSON_NUMBER:
+            content->top -= 32 - sprintf(reinterpret_cast<char *>(ContentStackPush(content, 32)), "%.17g", value->num);
+            break;
+        case JSON_OBJECT:PUTS(content, "{", 1);
+            for (i = 0; i < value->o.len; ++i) {
+                PUTS(content, "\"", 1);
+                PUTS(content, value->o.m[i].k, value->o.m[i].len);
+                PUTS(content, "\":", 2);
+                JSONStringifyValue(content, &value->o.m[i].v);
+                if (i != value->o.len - 1)
+                    PUTS(content, ",", 1);
+            }
+            PUTS(content, "}", 1);
+            break;
+        case JSON_ARRAY:PUTS(content, "[", 1);
+            for (i = 0; i < value->a.len; ++i) {
+                JSONStringifyValue(content, &value->a.v[i]);
+                if (i != value->a.len - 1)
+                    PUTS(content, ",", 1);
+            }
+            PUTS(content, "]", 1);
+            break;
+        case JSON_STRING:JSONStringifyString(content, value);
+            break;
+    }
+    return JSON_STRINGIFY_OK;
+}
+
+STRINGIFY_STATE JSONStringify(const JSON_VALUE *value, char **json, size_t *l) {
+    assert(value != nullptr && json != nullptr);
+    JSON_CONTENT content{};
+    STRINGIFY_STATE ret;
+    content.size = JSON_STACK_LENGTH;
+    content.stack = (char *) malloc(JSON_STACK_LENGTH);
+    if ((ret = JSONStringifyValue(&content, value)) == JSON_STRINGIFY_OK) {
+        PUTC(&content, '\0');
+        *json = content.stack;
+        *l = content.top;
+        return ret;
+    }
+    free(content.stack);
+    return JSON_STRINGIFY_FAIL;
 }
 
 #endif //MYTINYJSON_PARSE_HPP
