@@ -38,6 +38,13 @@ static char *ContentStackPop(JSON_CONTENT *content, size_t size) {
     return content->stack + (content->top -= size);
 }
 
+static void ParseWhitespace(JSON_CONTENT *content) {
+    const char *p = content->json;
+    while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r')
+        p++;
+    content->json = p;
+}
+
 void SetString(JSON_VALUE *value, const char *s, size_t len);
 
 static PARSE_STATE ParseKey(JSON_CONTENT *content, JSON_VALUE *value, const char *dst, JSON_TYPE type) {
@@ -286,6 +293,7 @@ static PARSE_STATE ParseArray(JSON_CONTENT *content, JSON_VALUE *value) {
     PARSE_STATE ret;
     assert(*content->json == '[');
     ++content->json;
+    ParseWhitespace(content);
     if (*content->json == ']') {
         value->type = JSON_ARRAY;
         value->a.len = 0;
@@ -299,9 +307,11 @@ static PARSE_STATE ParseArray(JSON_CONTENT *content, JSON_VALUE *value) {
             break;
         memcpy(ContentStackPush(content, sizeof(value1)), &value1, sizeof(value1));
         ++size;
-        if (*content->json == ',')
+        ParseWhitespace(content);
+        if (*content->json == ',') {
             ++content->json;
-        else if (*content->json == ']') {
+            ParseWhitespace(content);
+        } else if (*content->json == ']') {
             ++content->json;
             value->type = JSON_ARRAY;
             value->a.len = size;
@@ -340,7 +350,7 @@ static PARSE_STATE ParseObject(JSON_CONTENT *content, JSON_VALUE *value) {
     PARSE_STATE ret;
     assert(*content->json == '{');
     ++content->json;
-//    lept_parse_whitespace(c);
+    ParseWhitespace(content);
     if (*content->json == '}') {
         content->json++;
         value->type = JSON_OBJECT;
@@ -361,19 +371,22 @@ static PARSE_STATE ParseObject(JSON_CONTENT *content, JSON_VALUE *value) {
         memcpy(m.k = (char *) malloc(len + 1), tmp, len);
         m.k[len] = '\0';
         m.len = len;
+        ParseWhitespace(content);
         if (*content->json != ':') {
             ret = JSON_PARSE_MISS_COLON;
             break;
         }
         ++content->json;
-
+        ParseWhitespace(content);
         if ((ret = ParseValue(content, &m.v)) != JSON_PARSE_OK)
             break;
         memcpy(ContentStackPush(content, sizeof(JSON_MEMBER)), &m, sizeof(JSON_MEMBER));
         ++size;
         m.k = nullptr;
+        ParseWhitespace(content);
         if (*content->json == ',') {
             ++content->json;
+            ParseWhitespace(content);
         } else if (*content->json == '}') {
             size_t s = sizeof(JSON_MEMBER) * size;
             value->type = JSON_OBJECT;
@@ -427,7 +440,7 @@ static void SetString(JSON_VALUE *value, const char *s, size_t len) {
     // 有脏数据 所以初始化为null
     value->s.s = new char[len + 1]();
     memcpy(value->s.s, s, len);
-    value->s.s[len + 1] = '\0';
+    value->s.s[len] = '\0';
     value->s.len = len;
     value->type = JSON_STRING;
 }
@@ -479,6 +492,24 @@ JSON_VALUE *GetArrayElement(const JSON_VALUE *v, size_t index) {
 size_t GetArraySize(const JSON_VALUE *v) {
     assert(v != nullptr && v->type == JSON_ARRAY);
     return v->a.len;
+}
+
+PARSE_STATE ParseJsonString(const char *json, JSON_VALUE *value) {
+    assert(value != nullptr);
+    PARSE_STATE ret;
+    JSON_CONTENT content{};
+    content.json = json;
+    ParseWhitespace(&content);
+    if ((ret = ParseValue(&content, value)) == JSON_PARSE_OK) {
+        ParseWhitespace(&content);
+        if (*content.json != '\0') {
+            value->type = JSON_NULL;
+            return JSON_PARSE_ROOT_NOT_SINGULAR;
+        }
+    }
+    assert(content.top == 0);
+    free(content.stack);
+    return ret;
 }
 
 #endif //MYTINYJSON_PARSE_HPP
